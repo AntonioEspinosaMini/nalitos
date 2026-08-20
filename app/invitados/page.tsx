@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bus, Plus, Search, Users, UtensilsCrossed } from 'lucide-react';
+import { Bus, List, Plus, Search, Users, UtensilsCrossed } from 'lucide-react';
 import { useAppData, useData } from '@/lib/data-context';
 import { guestFullName, guestStats, guestsByGroup } from '@/lib/selectors';
 import { GUEST_MENU_LABEL, GUEST_STATUS_LABEL, GUEST_STATUS_STYLE } from '@/lib/labels';
@@ -127,9 +127,13 @@ export default function GuestsPage() {
               ]}
             />
 
-            <div className="flex gap-2">
+            {/* El carril de lados se desplaza si no cabe; el de vista se queda fijo
+                en iconos para que la fila nunca desborde la pantalla. */}
+            <div className="flex min-w-0 gap-2">
               <Segmented
-                className="flex-1"
+                scrollable
+                bleed={false}
+                className="min-w-0 flex-1"
                 value={side}
                 onChange={setSide}
                 options={[
@@ -139,11 +143,13 @@ export default function GuestsPage() {
                 ]}
               />
               <Segmented
+                iconOnly
+                className="flex-none"
                 value={mode}
                 onChange={setMode}
                 options={[
-                  { value: 'lista', label: 'Lista' },
-                  { value: 'grupo', label: 'Grupos' },
+                  { value: 'lista', label: 'Lista', icon: List },
+                  { value: 'grupo', label: 'Grupos', icon: Users },
                 ]}
               />
             </div>

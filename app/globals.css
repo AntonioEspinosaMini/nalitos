@@ -5,6 +5,10 @@
 html,
 body {
   overscroll-behavior-y: none;
+  /* Nada debe desbordar a lo ancho: si algo se pasa, no se lleva la pantalla
+     entera (ni los paneles fijos) consigo. */
+  overflow-x: hidden;
+  max-width: 100%;
 }
 
 body {
