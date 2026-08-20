@@ -5,10 +5,12 @@
 html,
 body {
   overscroll-behavior-y: none;
-  /* Nada debe desbordar a lo ancho: si algo se pasa, no se lleva la pantalla
-     entera (ni los paneles fijos) consigo. */
-  overflow-x: hidden;
-  max-width: 100%;
+  /* Ojo: nada de overflow aqui. El truco de bloquear el fondo de los paneles
+     (body.style.overflow = 'hidden') solo funciona mientras html siga en
+     visible, porque es entonces cuando el overflow del body manda en el
+     viewport. Poner overflow-x: hidden de red de seguridad dejaba el bloqueo
+     en nada y se llevaba por delante el scroll vertical en movil. Si algo
+     desborda a lo ancho, se arregla donde desborda (min-w-0, scroll interno). */
 }
 
 body {
