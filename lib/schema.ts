@@ -2,7 +2,8 @@
 // llega de remoto. Un bin creado con una versión anterior del esquema puede no
 // traer algún campo: aquí se completa para que la UI nunca vea undefined.
 
-import { DEFAULT_BUDGET_CATEGORIES } from './labels';
+import { DEFAULT_BUDGET_CATEGORIES, MAX_SEAT_COUNT, MIN_SEAT_COUNT } from './labels';
+import { PLAN_HEIGHT, PLAN_WIDTH } from './seating';
 import { newId, nowISO } from './date';
 import type {
   AppData,
@@ -11,6 +12,7 @@ import type {
   DecisionOption,
   Expense,
   Guest,
+  Table,
   Task,
   Vendor,
 } from './types';
@@ -47,6 +49,7 @@ export function emptyAppData(): AppData {
     tasks: [],
     vendors: [],
     decisions: [],
+    tables: [],
   };
 }
 
@@ -92,7 +95,6 @@ function normalizeGuest(raw: Partial<Guest>): Guest {
     menu: raw.menu ?? 'normal',
     allergies: text(raw.allergies),
     transport: Boolean(raw.transport),
-    table: text(raw.table),
     notes: text(raw.notes),
     created_at: raw.created_at ?? nowISO(),
   };
@@ -131,6 +133,51 @@ function normalizeVendor(raw: Partial<Vendor>): Vendor {
     notes: text(raw.notes),
     created_at: raw.created_at ?? nowISO(),
   };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeTable(raw: Partial<Table>): Table {
+  // La capacidad es la longitud del array de sillas, así que se acota aquí:
+  // una mesa de 0 sillas no se puede dibujar y una de 200 no existe.
+  const seats = Array.isArray(raw.seats) ? raw.seats : [];
+  const count = clamp(seats.length || MIN_SEAT_COUNT, MIN_SEAT_COUNT, MAX_SEAT_COUNT);
+  return {
+    id: raw.id ?? newId(),
+    name: raw.name?.trim() || 'Mesa',
+    shape: raw.shape === 'rectangular' ? 'rectangular' : 'redonda',
+    x: clamp(num(raw.x, PLAN_WIDTH / 2), 0, PLAN_WIDTH),
+    y: clamp(num(raw.y, PLAN_HEIGHT / 2), 0, PLAN_HEIGHT),
+    rotation: ((Math.round(num(raw.rotation)) % 360) + 360) % 360,
+    seats: Array.from({ length: count }, (_, i) => {
+      const value = seats[i];
+      return typeof value === 'string' && value ? value : null;
+    }),
+    is_head: Boolean(raw.is_head),
+    notes: text(raw.notes),
+    created_at: raw.created_at ?? nowISO(),
+  };
+}
+
+/**
+ * Deja las sillas coherentes con la lista de invitados: vacía las que apuntan
+ * a alguien que ya no existe y, si un invitado apareciese sentado dos veces
+ * (dos escrituras que se cruzaron), le deja solo la primera silla. La regla
+ * "un invitado, una silla" tiene que aguantar aunque el bin venga tocado.
+ */
+function reconcileSeats(tables: Table[], guests: Guest[]): Table[] {
+  const known = new Set(guests.map((guest) => guest.id));
+  const used = new Set<string>();
+  return tables.map((table) => ({
+    ...table,
+    seats: table.seats.map((guestId) => {
+      if (!guestId || !known.has(guestId) || used.has(guestId)) return null;
+      used.add(guestId);
+      return guestId;
+    }),
+  }));
 }
 
 function normalizeOption(raw: Partial<DecisionOption>): DecisionOption {
@@ -182,13 +229,17 @@ export function normalizeAppData(data: Partial<AppData> | null | undefined): App
   const otros = categoryId('Otros');
   const fallback = known.has(otros) ? otros : categories[0].id;
 
+  const guests = (data.guests ?? []).map(normalizeGuest);
+  const tables = (data.tables ?? []).map(normalizeTable);
+
   return {
     wedding: { ...base.wedding, ...data.wedding, total_budget: Math.max(0, num(data.wedding?.total_budget)) },
     budget_categories: categories,
     expenses: expenses.map((e) => (known.has(e.category_id) ? e : { ...e, category_id: fallback })),
-    guests: (data.guests ?? []).map(normalizeGuest),
+    guests,
     tasks: (data.tasks ?? []).map(normalizeTask),
     vendors: vendors.map((v) => (known.has(v.category_id) ? v : { ...v, category_id: fallback })),
     decisions: (data.decisions ?? []).map(normalizeDecision),
+    tables: reconcileSeats(tables, guests),
   };
 }

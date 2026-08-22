@@ -4,6 +4,8 @@ import useSWR from 'swr';
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { store } from './storage';
 import { categoryId as slugify } from './schema';
+import { clampToPlan, findFreeSpot, snapToGrid, tableRadius } from './seating';
+import { MAX_SEAT_COUNT, MIN_SEAT_COUNT } from './labels';
 import { newId, nowISO } from './date';
 import type {
   AppData,
@@ -16,6 +18,8 @@ import type {
   GuestMenu,
   GuestStatus,
   PersonName,
+  Table,
+  TableShape,
   Task,
   TaskCategory,
   TaskPriority,
@@ -60,7 +64,7 @@ export interface GuestInput {
   menu: GuestMenu;
   allergies: string | null;
   transport: boolean;
-  table: string | null;
+  /** La mesa no se escribe aquí: se sienta en el plano (`assignSeat`). */
   notes: string | null;
 }
 
@@ -107,6 +111,16 @@ export interface OptionInput {
   notes: string | null;
   rating_antonio: number;
   rating_carmen: number;
+}
+
+export interface TableInput {
+  id?: string;
+  name: string;
+  shape: TableShape;
+  /** Sillas que tiene la mesa. Al editar, el array se ajusta a este número. */
+  seat_count: number;
+  is_head: boolean;
+  notes: string | null;
 }
 
 interface DataContextValue {
@@ -158,6 +172,35 @@ interface DataContextValue {
   /** Marca la opción ganadora (y da la decisión por decidida). */
   setWinner: (decisionId: string, optionId: string) => Promise<void>;
   rateOption: (decisionId: string, optionId: string, person: PersonName, rating: number) => Promise<void>;
+
+  saveTable: (input: TableInput) => Promise<void>;
+  deleteTable: (id: string) => Promise<void>;
+  /** Guarda el sitio de la mesa. Se llama al soltar, nunca durante el arrastre. */
+  moveTable: (id: string, x: number, y: number) => Promise<void>;
+  rotateTable: (id: string, rotation: number) => Promise<void>;
+  /** Sienta a un invitado. Si ya estaba en otra silla, se levanta de aquella. */
+  assignSeat: (tableId: string, seatIndex: number, guestId: string) => Promise<void>;
+  /** Deja la silla libre. El invitado sigue existiendo, solo que de pie. */
+  clearSeat: (tableId: string, seatIndex: number) => Promise<void>;
+  /** Levanta a todos los de una mesa sin borrarla. */
+  clearTable: (id: string) => Promise<void>;
+}
+
+/**
+ * Cambia el número de sillas de una mesa conservando a la gente. Quien cae
+ * fuera del nuevo tamaño se recoloca en los huecos que queden dentro de la
+ * misma mesa; solo se queda de pie si de verdad ya no cabe. A nadie se le
+ * borra: si pierde la silla, vuelve a la lista de "sin sentar".
+ */
+function resizeSeats(seats: (string | null)[], count: number): (string | null)[] {
+  const next = Array.from({ length: count }, (_, i) => seats[i] ?? null);
+  const displaced = seats.slice(count).filter((id): id is string => id != null);
+  for (const id of displaced) {
+    const free = next.indexOf(null);
+    if (free === -1) break;
+    next[free] = id;
+  }
+  return next;
 }
 
 const DataContext = createContext<DataContextValue | null>(null);
@@ -363,7 +406,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         menu: 'normal',
         allergies: null,
         transport: false,
-        table: null,
         notes: null,
         created_at: nowISO(),
       };
@@ -385,7 +427,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         menu: input.menu,
         allergies: input.allergies?.trim() || null,
         transport: input.transport,
-        table: input.table?.trim() || null,
         notes: input.notes?.trim() || null,
       };
       await applyUpdate((current) => {
@@ -406,7 +447,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const deleteGuest = useCallback<DataContextValue['deleteGuest']>(
     async (id) => {
-      await applyUpdate((current) => ({ ...current, guests: current.guests.filter((g) => g.id !== id) }));
+      await applyUpdate((current) => ({
+        ...current,
+        guests: current.guests.filter((g) => g.id !== id),
+        // Su silla se queda libre en el acto: si no, quedaría ocupada por
+        // alguien que ya no existe hasta la siguiente normalización.
+        tables: current.tables.map((table) =>
+          table.seats.includes(id)
+            ? { ...table, seats: table.seats.map((seat) => (seat === id ? null : seat)) }
+            : table
+        ),
+      }));
     },
     [applyUpdate]
   );
@@ -795,6 +846,172 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [applyUpdate]
   );
 
+  // ─── Mesas ─────────────────────────────────────────────────────────────────
+
+  const saveTable = useCallback<DataContextValue['saveTable']>(
+    async (input) => {
+      const name = input.name.trim();
+      if (!name) return;
+      const count = Math.min(MAX_SEAT_COUNT, Math.max(MIN_SEAT_COUNT, Math.round(input.seat_count)));
+      const notes = input.notes?.trim() || null;
+
+      await applyUpdate((current) => {
+        // La mesa de los novios es una: marcar otra desmarca la anterior.
+        const unmarkOthers = (tables: Table[], keepId: string) =>
+          input.is_head ? tables.map((t) => (t.id === keepId ? t : { ...t, is_head: false })) : tables;
+
+        if (input.id) {
+          const tables = current.tables.map((table) => {
+            if (table.id !== input.id) return table;
+            const seats = resizeSeats(table.seats, count);
+            return { ...table, name, shape: input.shape, seats, is_head: input.is_head, notes };
+          });
+          return { ...current, tables: unmarkOthers(tables, input.id) };
+        }
+
+        const spot = findFreeSpot(current.tables, input.shape, count);
+        const table: Table = {
+          id: newId(),
+          name,
+          shape: input.shape,
+          x: spot.x,
+          y: spot.y,
+          rotation: 0,
+          seats: new Array(count).fill(null),
+          is_head: input.is_head,
+          notes,
+          created_at: nowISO(),
+        };
+        return { ...current, tables: [...unmarkOthers(current.tables, table.id), table] };
+      });
+    },
+    [applyUpdate]
+  );
+
+  const deleteTable = useCallback<DataContextValue['deleteTable']>(
+    async (id) => {
+      // Los que estuvieran sentados no se pierden: vuelven a "sin sentar".
+      await applyUpdate((current) => ({ ...current, tables: current.tables.filter((t) => t.id !== id) }));
+    },
+    [applyUpdate]
+  );
+
+  const moveTable = useCallback<DataContextValue['moveTable']>(
+    async (id, x, y) => {
+      await applyUpdate((current) => {
+        const table = current.tables.find((t) => t.id === id);
+        if (!table) return current;
+        const spot = clampToPlan(snapToGrid(x), snapToGrid(y), tableRadius(table));
+        // Si no se ha movido de sitio, no se escribe: arrastrar y soltar en el
+        // mismo punto no tiene por qué costar una escritura.
+        if (spot.x === table.x && spot.y === table.y) return current;
+        return {
+          ...current,
+          tables: current.tables.map((t) => (t.id === id ? { ...t, x: spot.x, y: spot.y } : t)),
+        };
+      });
+    },
+    [applyUpdate]
+  );
+
+  const rotateTable = useCallback<DataContextValue['rotateTable']>(
+    async (id, rotation) => {
+      const turn = ((Math.round(rotation) % 360) + 360) % 360;
+      await applyUpdate((current) => {
+        const table = current.tables.find((t) => t.id === id);
+        if (!table || table.rotation === turn) return current;
+        return {
+          ...current,
+          tables: current.tables.map((t) => (t.id === id ? { ...t, rotation: turn } : t)),
+        };
+      });
+    },
+    [applyUpdate]
+  );
+
+  /**
+   * Sentar a alguien. Aquí vive la regla de "un invitado, una silla": antes de
+   * sentarlo se le levanta de donde estuviera. Y si la silla estaba ocupada,
+   * los dos se cambian el sitio en vez de dejar a nadie de pie sin avisar.
+   */
+  const assignSeat = useCallback<DataContextValue['assignSeat']>(
+    async (tableId, seatIndex, guestId) => {
+      await applyUpdate((current) => {
+        const target = current.tables.find((t) => t.id === tableId);
+        if (!target || seatIndex < 0 || seatIndex >= target.seats.length) return current;
+        if (target.seats[seatIndex] === guestId) return current;
+
+        // Dónde estaba sentado antes, si estaba.
+        let from: { tableId: string; index: number } | null = null;
+        for (const table of current.tables) {
+          const index = table.seats.indexOf(guestId);
+          if (index !== -1) {
+            from = { tableId: table.id, index };
+            break;
+          }
+        }
+
+        const displaced = target.seats[seatIndex];
+
+        return {
+          ...current,
+          tables: current.tables.map((table) => {
+            const seats = [...table.seats];
+            let touched = false;
+
+            // Se levanta de su silla anterior. Si la silla nueva estaba ocupada
+            // y él venía de otra, el desplazado se sienta en la que deja libre.
+            if (from && table.id === from.tableId) {
+              seats[from.index] = displaced ?? null;
+              touched = true;
+            }
+            // Si el invitado no venía de ninguna silla, escribirlo aquí ya
+            // levanta al desplazado: se queda de pie, que es lo esperable.
+            if (table.id === tableId) {
+              seats[seatIndex] = guestId;
+              touched = true;
+            }
+
+            return touched ? { ...table, seats } : table;
+          }),
+        };
+      });
+    },
+    [applyUpdate]
+  );
+
+  const clearSeat = useCallback<DataContextValue['clearSeat']>(
+    async (tableId, seatIndex) => {
+      await applyUpdate((current) => {
+        const table = current.tables.find((t) => t.id === tableId);
+        if (!table || table.seats[seatIndex] == null) return current;
+        return {
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === tableId ? { ...t, seats: t.seats.map((s, i) => (i === seatIndex ? null : s)) } : t
+          ),
+        };
+      });
+    },
+    [applyUpdate]
+  );
+
+  const clearTable = useCallback<DataContextValue['clearTable']>(
+    async (id) => {
+      await applyUpdate((current) => {
+        const table = current.tables.find((t) => t.id === id);
+        if (!table || table.seats.every((seat) => seat == null)) return current;
+        return {
+          ...current,
+          tables: current.tables.map((t) =>
+            t.id === id ? { ...t, seats: t.seats.map(() => null) } : t
+          ),
+        };
+      });
+    },
+    [applyUpdate]
+  );
+
   return (
     <DataContext.Provider
       value={{
@@ -832,6 +1049,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         deleteOption,
         setWinner,
         rateOption,
+        saveTable,
+        deleteTable,
+        moveTable,
+        rotateTable,
+        assignSeat,
+        clearSeat,
+        clearTable,
       }}
     >
       {children}

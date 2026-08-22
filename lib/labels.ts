@@ -9,6 +9,7 @@ import type {
   TaskCategory,
   TaskPriority,
   TaskStatus,
+  TableShape,
   VendorStatus,
 } from './types';
 
@@ -132,6 +133,20 @@ export const DECISION_STATUS_STYLE: Record<DecisionStatus, string> = {
   pendiente: 'bg-amber-50 text-amber-700 ring-amber-200',
   decidida: 'bg-sage-50 text-sage-700 ring-sage-200',
 };
+
+export const TABLE_SHAPE_LABEL: Record<TableShape, string> = {
+  redonda: 'Redonda',
+  rectangular: 'Rectangular',
+};
+
+export const TABLE_SHAPES: TableShape[] = ['redonda', 'rectangular'];
+
+/** Sillas con las que se crea una mesa nueva. */
+export const DEFAULT_SEAT_COUNT = 8;
+
+/** Mínimo y máximo de sillas por mesa. Más de 20 no cabe en una mesa real. */
+export const MIN_SEAT_COUNT = 2;
+export const MAX_SEAT_COUNT = 20;
 
 /** Categorías de presupuesto con las que arranca una boda nueva. */
 export const DEFAULT_BUDGET_CATEGORIES = [

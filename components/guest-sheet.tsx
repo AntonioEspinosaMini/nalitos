@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import Link from 'next/link';
+import { Armchair, ChevronDown } from 'lucide-react';
 import { useData } from '@/lib/data-context';
 import { GUEST_MENUS, GUEST_MENU_LABEL, GUEST_STATUS_LABEL } from '@/lib/labels';
+import type { GuestSeat } from '@/lib/selectors';
 import type { Assignee, Guest, GuestMenu, GuestStatus } from '@/lib/types';
 import { Sheet } from './ui/sheet';
 import { Button } from './ui/button';
@@ -18,6 +20,8 @@ interface GuestSheetProps {
   guest: Guest | null;
   /** Grupos que ya existen, para reutilizarlos sin volver a escribirlos. */
   groups: string[];
+  /** Dónde está sentado, derivado del plano. Aquí solo se enseña. */
+  seat?: GuestSeat | null;
 }
 
 const EMPTY = {
@@ -29,7 +33,6 @@ const EMPTY = {
   menu: 'normal' as GuestMenu,
   allergies: '',
   transport: false,
-  table: '',
   notes: '',
 };
 
@@ -37,7 +40,7 @@ const EMPTY = {
  * Alta y edición de invitados. Al dar de alta solo se piden nombre y estado
  * (lo demás se despliega si hace falta); al editar se abre todo.
  */
-export function GuestSheet({ open, onClose, guest, groups }: GuestSheetProps) {
+export function GuestSheet({ open, onClose, guest, groups, seat = null }: GuestSheetProps) {
   const { saveGuest, deleteGuest } = useData();
   const [form, setForm] = useState(EMPTY);
   const [showAll, setShowAll] = useState(false);
@@ -54,7 +57,6 @@ export function GuestSheet({ open, onClose, guest, groups }: GuestSheetProps) {
         menu: guest.menu,
         allergies: guest.allergies ?? '',
         transport: guest.transport,
-        table: guest.table ?? '',
         notes: guest.notes ?? '',
       });
       setShowAll(true);
@@ -80,7 +82,6 @@ export function GuestSheet({ open, onClose, guest, groups }: GuestSheetProps) {
       menu: form.menu,
       allergies: form.allergies || null,
       transport: form.transport,
-      table: form.table || null,
       notes: form.notes || null,
     });
     onClose();
@@ -175,20 +176,37 @@ export function GuestSheet({ open, onClose, guest, groups }: GuestSheetProps) {
               />
             </Field>
 
-            <FieldRow>
-              <Field label="Menú">
-                <Select value={form.menu} onChange={(e) => set('menu', e.target.value as GuestMenu)}>
-                  {GUEST_MENUS.map((menu) => (
-                    <option key={menu} value={menu}>
-                      {GUEST_MENU_LABEL[menu]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Mesa">
-                <Input value={form.table} onChange={(e) => set('table', e.target.value)} placeholder="4" />
-              </Field>
-            </FieldRow>
+            <Field label="Menú">
+              <Select value={form.menu} onChange={(e) => set('menu', e.target.value as GuestMenu)}>
+                {GUEST_MENUS.map((menu) => (
+                  <option key={menu} value={menu}>
+                    {GUEST_MENU_LABEL[menu]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            {/* La mesa no se escribe aquí: manda la silla del plano. Esto solo
+                enseña dónde está sentado y lleva allí. */}
+            {guest && (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.08em] text-ink-400">
+                  Mesa
+                </span>
+                <Link
+                  href="/mesas"
+                  onClick={onClose}
+                  className="flex items-center gap-2.5 rounded-xl border border-ink-200 bg-ink-50 px-3.5 py-2.5 text-[15px] transition-colors hover:bg-ink-100"
+                >
+                  <Armchair className="h-4 w-4 flex-none text-ink-400" />
+                  <span className="min-w-0 flex-1 truncate text-ink-800">
+                    {seat ? `${seat.table.name} · silla ${seat.index + 1}` : 'Sin sentar'}
+                  </span>
+                  <span className="flex-none text-xs text-ink-400">Ver plano</span>
+                </Link>
+                <span className="mt-1 block text-xs text-ink-400">Se sienta desde el plano de mesas.</span>
+              </div>
+            )}
 
             <Field label="Alergias o intolerancias">
               <Input

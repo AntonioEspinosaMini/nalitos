@@ -1,8 +1,8 @@
 # Nuestra boda — Antonio & Carmen
 
 Aplicación web privada para organizar la boda: dashboard, presupuesto, invitados,
-tareas, proveedores y decisiones. Pensada para el móvil, pero funciona igual de
-bien en escritorio.
+tareas, proveedores, decisiones y el plano de mesas del banquete. Pensada para el
+móvil, pero funciona igual de bien en escritorio.
 
 Misma arquitectura que la app de casa: **Next.js exportado como sitio estático**,
 desplegado en **GitHub Pages**, con **JSONBin.io** como almacén de datos. Sin
@@ -120,6 +120,7 @@ app/
   tareas/             Tareas repartidas entre los dos
   proveedores/        Directorio de proveedores
   mas/                Cajón de secciones secundarias (móvil)
+  mesas/              Plano del banquete: mesas, sillas y quién se sienta dónde
   presupuesto/        Presupuesto y gastos
   decisiones/         Comparativa de opciones
   ajustes/            Fecha, presupuesto total, categorías
@@ -133,9 +134,51 @@ lib/
   types.ts            Modelo de datos
   schema.ts           Valores por defecto y normalización
   selectors.ts        Todo lo calculado (resúmenes, estadísticas)
+  seating.ts          Geometría del plano (medidas, sillas, colocación)
   data-context.tsx    Estado global y mutaciones
   storage/            Capa de persistencia intercambiable
 ```
+
+## El plano de mesas
+
+Vive en **Más → Mesas**. Es un plano de verdad, en centímetros: un SVG con pan y
+zoom sobre el que se arrastran las mesas y se toca cada silla para sentar a
+alguien.
+
+**La silla manda.** Quién se sienta dónde se guarda en la silla de la mesa
+(`Table.seats`, un hueco por silla con el id del invitado o `null`). En la ficha
+del invitado la mesa **se deriva** con `seatMap()`: se ve, pero no se edita a
+mano. Es el mismo criterio que el dinero de un proveedor, que sale de sus gastos
+(`vendorMoney()`): guardarlo en los dos sitios sería tener dos verdades que
+pueden separarse, y con dos personas escribiendo sobre el mismo JSON se separan
+seguro.
+
+De ahí salen tres invariantes, que aguantan aunque el bin venga tocado:
+
+- **Un invitado, una silla.** Lo garantizan `assignSeat()` y `reconcileSeats()`
+  en la normalización.
+- **Nadie desaparece.** Quitar sillas o borrar una mesa nunca borra a un
+  invitado: vuelve a «sin sentar». Al encoger una mesa, los que caían fuera se
+  recolocan en los huecos que queden dentro de ella.
+- **Ninguna silla apunta al vacío.** Al borrar un invitado su silla se libera en
+  el acto, y la normalización vacía las que apunten a alguien que ya no existe.
+
+Lo demás es geometría, y no se guarda (`lib/seating.ts`): el tamaño de la mesa
+sale del número de sillas —si añades sillas, la mesa crece— y la posición de
+cada silla, de la forma más el giro. En la redonda se reparten por la
+circunferencia; en la rectangular, primero los lados largos y luego las
+cabeceras, dando la vuelta en el sentido de las agujas del reloj para que la
+«silla 3» sea siempre la misma silla.
+
+Dos detalles que no son casualidad:
+
+- **Arrastrar no guarda.** Mientras el dedo está abajo la posición vive en
+  estado local; solo se llama a `moveTable()` al soltar. Cada escritura
+  reescribe el JSON entero, así que guardar en cada `pointermove` serían
+  cientos de escrituras por arrastre.
+- **Las sillas se apagan con el plano alejado.** Por debajo de cierto zoom son
+  puntos de pocos píxeles y un toque torpe sentaría a alguien sin querer. Para
+  sentar con calma está la mesa abierta, que la dibuja grande.
 
 ## Privacidad del presupuesto
 
@@ -146,5 +189,6 @@ resumido, pero ya dentro de la aplicación.
 ## Qué no hay (a propósito)
 
 Login, registro, backend propio, documentos, timeline del día de la boda, chat,
-notificaciones push, integraciones e IA. La V0 es exactamente:
-**Dashboard + Presupuesto + Invitados + Tareas + Proveedores + Decisiones**.
+notificaciones push, integraciones e IA. Hoy la app es exactamente:
+**Dashboard + Presupuesto + Invitados + Tareas + Proveedores + Decisiones +
+Mesas**.

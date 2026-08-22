@@ -64,8 +64,11 @@ export interface Guest {
   allergies: string | null;
   /** Si necesita autobús / transporte. */
   transport: boolean;
-  /** Mesa asignada en el banquete. */
-  table: string | null;
+  /**
+   * Aquí no hay mesa: quién se sienta dónde lo guarda la silla de la mesa
+   * (`Table.seats`), y la ficha del invitado lo deriva con `seatMap()`. Así no
+   * pueden contradecirse el plano y el invitado.
+   */
   notes: string | null;
   created_at: string;
 }
@@ -124,6 +127,38 @@ export interface Vendor {
   created_at: string;
 }
 
+// ─── Mesas ───────────────────────────────────────────────────────────────────
+
+export type TableShape = 'redonda' | 'rectangular';
+
+export interface Table {
+  id: string;
+  /** Cómo se llama en el plano: "Novios", "Mesa 4", "Amigos uni". */
+  name: string;
+  shape: TableShape;
+  /**
+   * Centro de la mesa en el plano, en centímetros dentro de PLAN_SIZE.
+   * Se guarda solo al soltar el dedo, nunca durante el arrastre.
+   */
+  x: number;
+  y: number;
+  /** Giro en grados. Solo se nota en las rectangulares. */
+  rotation: number;
+  /**
+   * Un hueco por silla: id del invitado sentado, o null si está libre. El
+   * índice del array ES el número de silla, y su longitud, la capacidad: no
+   * hay un `seat_count` aparte que pudiera discrepar.
+   *
+   * Esta es la fuente de verdad de quién se sienta dónde. Un invitado no puede
+   * aparecer en dos sillas: lo garantizan `assignSeat()` y `normalizeAppData()`.
+   */
+  seats: (string | null)[];
+  /** La mesa de los novios: se pinta distinta y va siempre primera. */
+  is_head: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
 // ─── Decisiones ──────────────────────────────────────────────────────────────
 
 export type DecisionStatus = 'pendiente' | 'decidida';
@@ -164,4 +199,5 @@ export interface AppData {
   tasks: Task[];
   vendors: Vendor[];
   decisions: Decision[];
+  tables: Table[];
 }

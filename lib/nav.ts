@@ -1,4 +1,4 @@
-import { Home, Users, ListChecks, Handshake, Wallet, Scale, Settings, type LucideIcon } from 'lucide-react';
+import { Home, Users, ListChecks, Handshake, Armchair, Wallet, Scale, Settings, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   href: string;
@@ -19,6 +19,7 @@ export const PRIMARY_NAV: NavItem[] = [
  * cifras que no queremos enseñar de un vistazo si alguien mira el móvil.
  */
 export const SECONDARY_NAV: NavItem[] = [
+  { href: '/mesas', label: 'Mesas', icon: Armchair },
   { href: '/presupuesto', label: 'Presupuesto', icon: Wallet },
   { href: '/decisiones', label: 'Decisiones', icon: Scale },
   { href: '/ajustes', label: 'Ajustes', icon: Settings },

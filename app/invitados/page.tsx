@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bus, List, Plus, Search, Users, UtensilsCrossed } from 'lucide-react';
+import { Armchair, Bus, List, Plus, Search, Users, UtensilsCrossed } from 'lucide-react';
 import { useAppData, useData } from '@/lib/data-context';
-import { guestFullName, guestStats, guestsByGroup } from '@/lib/selectors';
+import { guestFullName, guestStats, guestsByGroup, seatMap, type GuestSeat } from '@/lib/selectors';
 import { GUEST_MENU_LABEL, GUEST_STATUS_LABEL, GUEST_STATUS_STYLE } from '@/lib/labels';
 import { cn, foldText } from '@/lib/utils';
 import type { Guest, GuestStatus } from '@/lib/types';
@@ -33,6 +33,9 @@ export default function GuestsPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const stats = guestStats(data.guests);
+  // Dónde está sentado cada uno: se saca una vez del plano y se reparte por
+  // las filas. La mesa no se guarda en el invitado, se deriva de la silla.
+  const seats = useMemo(() => seatMap(data.tables), [data.tables]);
   const groups = useMemo(
     () => [...new Set(data.guests.map((g) => g.group.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
     [data.guests]
@@ -165,6 +168,7 @@ export default function GuestsPage() {
                 <GuestRow
                   key={guest.id}
                   guest={guest}
+                  seat={seats.get(guest.id) ?? null}
                   onEdit={() => openEdit(guest)}
                   onCycle={() => void cycleGuestStatus(guest.id)}
                 />
@@ -185,6 +189,7 @@ export default function GuestsPage() {
                       <GuestRow
                         key={guest.id}
                         guest={guest}
+                        seat={seats.get(guest.id) ?? null}
                         onEdit={() => openEdit(guest)}
                         onCycle={() => void cycleGuestStatus(guest.id)}
                       />
@@ -197,17 +202,26 @@ export default function GuestsPage() {
         </div>
       )}
 
-      <GuestSheet open={sheetOpen} onClose={() => setSheetOpen(false)} guest={editing} groups={groups} />
+      <GuestSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        guest={editing}
+        groups={groups}
+        seat={editing ? seats.get(editing.id) ?? null : null}
+      />
     </div>
   );
 }
 
 function GuestRow({
   guest,
+  seat,
   onEdit,
   onCycle,
 }: {
   guest: Guest;
+  /** Su sitio en el plano, si lo tiene. */
+  seat: GuestSeat | null;
   onEdit: () => void;
   onCycle: () => void;
 }) {
@@ -237,7 +251,12 @@ function GuestRow({
               Bus
             </span>
           )}
-          {guest.table && <span>Mesa {guest.table}</span>}
+          {seat && (
+            <span className="inline-flex items-center gap-1">
+              <Armchair className="h-3 w-3" />
+              {seat.table.name}
+            </span>
+          )}
         </p>
       </button>
 
